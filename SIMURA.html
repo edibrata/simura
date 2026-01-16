@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIPINDAH - Edi Brata Edition (Master S-13 & S-12)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+        
+        body { font-family: 'Plus Jakarta Sans', sans-serif; font-style: normal; }
+        .tab-btn { transition: all 0.3s; font-weight: 800; text-transform: uppercase; }
+        .print-page { box-shadow: 0 0 15px rgba(0,0,0,0.1); border-radius: 2px; overflow: hidden; transform-origin: top; margin-bottom: 30px; border: 1px solid #ddd; background: white; }
+        .modal-overlay { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(5px); }
+        
+        /* Restore Original Input Styles */
+        input, select { border: 1px solid #cbd5e1 !important; border-radius: 8px !important; font-weight: 600; padding: 12px 16px !important; width: 100%; background: #ffffff; color: #1e293b; font-size: 14px; }
+        input:focus, select:focus { border-color: #3b82f6 !important; ring: 2px; ring-color: #dbeafe !important; outline: none; background: #fff !important; }
+        label { display: block; margin-bottom: 3px; font-size: 10px; font-weight: 800; text-transform: uppercase; color: #64748b; padding-left: 2px; text-align: left; }
+        
+        .bg-admin-box { background: #f0f9ff; border: 1px solid #e0f2fe; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .grid-paired { display: grid; grid-template-columns: 160px 1fr; gap: 1rem; align-items: end; }
+        
+        @media (max-width: 1024px) { .grid-paired { grid-template-columns: 1fr; gap: 0.5rem; } }
+        @media print {
+            @page { size: 215mm 330mm; margin: 0; }
+            body { background: none; margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            .print-page { box-shadow: none; border: none; margin: 0; padding: 10mm 20mm !important; width: 215mm; height: 330mm; }
+        }
+    </style>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC6IXCk6EXm0ndord8Is6cRZf_mG2MY5UM",
+            authDomain: "kedinasan-d9051.firebaseapp.com",
+            projectId: "kedinasan-d9051",
+            storageBucket: "kedinasan-d9051.firebasestorage.app",
+            messagingSenderId: "488517479224",
+            appId: "1:488517479224:web:57ed244cf69e2a010c6fcd"
+        };
+
+        const appId = "sipindah-edibrata-master-final-v15"; 
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const collectionName = "arsip_mutasi_master_v15_fixed";
+
+        window.state = {
+            user: null,
+            isAdmin: localStorage.getItem('edibrata_v15_admin') === 'true',
+            activeTab: 'dashboard',
+            database: [],
+            currentIndex: 0,
+            searchQuery: '',
+            globalLogo: localStorage.getItem('sipindah_global_logo') || '' 
+        };
+
+        window.showToast = (msg) => {
+            const t = document.getElementById('toast');
+            if(!t) return;
+            t.textContent = msg; t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 4000);
+        };
+
+        window.switchTab = (tabId) => {
+            window.state.activeTab = tabId;
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId)?.classList.remove('hidden');
+            
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-50', 'text-blue-600', 'border-blue-600');
+                if (btn.dataset.tab === tabId) btn.classList.add('bg-blue-50', 'text-blue-600', 'border-blue-600');
+            });
+
+            if(tabId === 'produksi') window.renderRecipientView();
+            if(tabId === 'database') window.renderDatabase();
+            if(tabId === 'dashboard') window.updateDashboard();
+            updateNavigationUI();
+        };
+
+        // --- BLUEPRINT FORM: Removed 'uppercase' from nama_siswa ---
+        window.getFormHTML = () => `
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-24 gap-y-12 text-left">
+                <div class="space-y-10">
+                    <div class="space-y-5">
+                        <div class="text-blue-600 font-black text-[10px] uppercase border-b pb-1 mb-2 tracking-widest text-left">A. Identitas Sekolah Asal</div>
+                        <div><label>Nama Sekolah Asal</label><input type="text" name="nama_sekolah_asal" value="SDN BANJARMASIN 1" required class="font-bold text-left"></div>
+                        <div class="grid grid-cols-2 gap-5 text-left">
+                            <div><label>NPSN Asal</label><input type="text" name="npsn_sekolah_asal" value="20600223"></div>
+                            <div><label>Email Sekolah</label><input type="email" name="email_sekolah_asal" value="esdeperdanadua@gmail.com"></div>
+                        </div>
+                        <div class="space-y-4 text-left">
+                            <div><label>Alamat Sekolah Asal (Jalan/KP/RT/RW)</label><input type="text" name="alamat_sekolah_asal" required></div>
+                            <div class="grid-paired">
+                                <div><label>Wilayah</label><select name="status_wil_sekolah_asal" required><option value="Desa" selected>Desa</option><option value="Kelurahan">Kelurahan</option></select></div>
+                                <div><input type="text" name="desa_sekolah_asal" value="Banjarmasin" required placeholder="Nama Desa/Kel"></div>
+                            </div>
+                            <div><label>Kecamatan Asal</label><input type="text" name="kec_sekolah_asal" value="Carita" required></div>
+                            <div class="grid-paired">
+                                <div><label>Daerah</label><select name="status_kab_sekolah_asal" required><option value="Kabupaten" selected>Kabupaten</option><option value="Kota">Kota</option></select></div>
+                                <div><input type="text" name="kab_sekolah_asal" value="Pandeglang" required placeholder="Nama Kab/Kota"></div>
+                            </div>
+                            <div><label>Provinsi</label><input type="text" name="prov_sekolah_asal" value="Banten" required></div>
+                        </div>
+                        <div><label>Website (Opsional)</label><input type="text" name="website_sekolah" placeholder="sdnegeribanjarmasin1.wordpress.com"></div>
+                    </div>
+
+                    <div class="space-y-5 pt-4">
+                        <div class="text-blue-600 font-black text-[10px] uppercase border-b pb-1 tracking-widest text-left">B. Biodata Siswa</div>
+                        <div class="grid grid-cols-1 gap-5 text-left">
+                            <div><label>Nama Lengkap Siswa</label><input type="text" name="nama_siswa" required class="font-bold"></div>
+                            <div class="grid grid-cols-2 gap-5 text-left">
+                                <div><label>Nomor Induk (NIS)</label><input type="text" name="nis" required></div>
+                                <div><label>NISN Nasional</label><input type="text" name="nisn" required class="font-mono"></div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-5 text-left">
+                                <div><label>Jenis Kelamin</label><select name="jenis_kelamin" required><option value="">-- Pilih --</option><option value="Laki-laki">Laki-laki</option><option value="Perempuan">Perempuan</option></select></div>
+                                <div><label>Siswa Kelas</label><select name="kelas_siswa" required><option value="">-- Pilih --</option><option value="I (satu)">I (satu)</option><option value="II (dua)">II (dua)</option><option value="III (tiga)">III (tiga)</option><option value="IV (empat)">IV (empat)</option><option value="V (lima)">V (lima)</option><option value="VI (enam)">VI (enam)</option></select></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-10">
+                    <div class="space-y-5">
+                        <div class="text-blue-600 font-black text-[10px] uppercase border-b pb-1 tracking-widest text-left font-black">C. Orang Tua/ Wali</div>
+                        <div class="grid grid-cols-1 gap-5 text-left">
+                            <div><label>Nama Orang Tua/ Wali</label><input type="text" name="nama_ortu" required class="font-bold"></div>
+                            <div><label>Pekerjaan</label><input type="text" name="pekerjaan_ortu" required></div>
+                            <div><label>Alamat Orang Tua (Jalan/KP/RT/RW)</label><input type="text" name="alamat_asal_ortu" required></div>
+                            <div class="space-y-4">
+                                <div class="grid-paired">
+                                    <div><label>Wilayah</label><select name="status_wil_asal_ortu" required><option value="Desa" selected>Desa</option><option value="Kelurahan">Kelurahan</option></select></div>
+                                    <div><input type="text" name="desa_asal_ortu" required placeholder="Nama Desa/Kel"></div>
+                                </div>
+                                <div><label>Kecamatan</label><input type="text" name="kec_asal_ortu" required></div>
+                                <div class="grid-paired">
+                                    <div><label>Daerah</label><select name="status_kab_asal_ortu" required><option value="Kabupaten" selected>Kabupaten</option><option value="Kota">Kota</option></select></div>
+                                    <div><input type="text" name="kab_asal_ortu" value="Pandeglang"></div>
+                                </div>
+                                <div><label>Provinsi</label><input type="text" name="prov_asal_ortu" value="Banten"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-5 pt-4">
+                        <div class="text-blue-600 font-black text-[10px] uppercase border-b pb-1 tracking-widest text-left font-black">D. Sekolah Tujuan Mutasi</div>
+                        <div class="grid grid-cols-1 gap-5 text-left">
+                            <div><label>Nama Sekolah Tujuan</label><input type="text" name="sekolah_tujuan" required class="font-bold text-blue-600 uppercase"></div>
+                            <div class="space-y-4">
+                                <div class="grid-paired text-left">
+                                    <div><label>Wilayah</label><select name="status_wil_tujuan" required><option value="Desa" selected>Desa</option><option value="Kelurahan">Kelurahan</option></select></div>
+                                    <div><input type="text" name="desa_tujuan" required placeholder="Nama Desa/Kel"></div>
+                                </div>
+                                <div><label>Kecamatan Tujuan</label><input type="text" name="kec_tujuan" required></div>
+                                <div class="grid-paired">
+                                    <div><label>Daerah</label><select name="status_kab_tujuan" required><option value="Kabupaten" selected>Kabupaten</option><option value="Kota">Kota</option></select></div>
+                                    <div><input type="text" name="kab_tujuan" value="Pandeglang"></div>
+                                </div>
+                                <div><label>Provinsi Tujuan</label><input type="text" name="prov_tujuan" required></div>
+                                <div><label>Alasan Pindah</label><input type="text" name="alasan_pindah" value="Mengikuti Orang Tua/ Wali" required class="font-bold"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-admin-box p-8 md:p-12 rounded-2xl space-y-8 text-left mt-8 border-2 border-blue-100/50">
+                <div class="text-blue-600 font-black text-[11px] uppercase tracking-widest border-b border-blue-200 pb-3 text-left font-black">E. Administrasi Tanda Tangan</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 text-left">
+                    <div class="lg:col-span-2"><label class="text-blue-400 font-black">Nomor Surat S-13 (Agenda)</label><input type="text" name="nomor_surat" placeholder="Contoh: 421.2/001/SD-20600223/2026" class="bg-white border-blue-100 font-mono text-left w-full shadow-sm"></div>
+                    <div><label class="text-blue-400 font-black text-left">Tanggal Surat</label><input type="date" name="tanggal_surat" value="2026-01-07" class="bg-white border-blue-100 text-left w-full shadow-sm"></div>
+                    <div><label class="text-blue-400 font-black text-left">Lokasi TTD</label><input type="text" name="lokasi_ttd" value="Perdana" class="bg-white border-blue-100 font-bold text-left w-full shadow-sm"></div>
+                    <div class="lg:col-span-2"><label class="text-blue-400 font-black text-left">Nama Kepala Sekolah</label><input type="text" name="kepsek_nama" value="Edi Brata, M.Pd." class="bg-white border-blue-100 font-bold text-left w-full shadow-sm"></div>
+                    <div class="lg:col-span-2"><label class="text-blue-400 font-black text-left">NIP Kepala Sekolah</label><input type="text" name="kepsek_nip" value="19XXXXXXXXXXXXXX" class="bg-white border-blue-100 font-mono text-slate-500 text-left w-full shadow-sm"></div>
+                </div>
+            </div>
+        `;
+
+        window.handleProcessData = async (e, mode = 'add', docId = null) => {
+            e.preventDefault();
+            if (!auth.currentUser) return showToast("Koneksi bermasalah...");
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                if (mode === 'add') {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', collectionName), data);
+                    showToast("Data Berhasil Disimpan");
+                    e.target.reset();
+                } else {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, docId), data);
+                    showToast("Data Berhasil Diupdate");
+                    window.toggleModal('modal-edit-pindah');
+                }
+                window.switchTab('dashboard');
+            } catch (err) { console.error(err); showToast("Gagal memproses"); }
+        };
+
+        window.openEditModal = (id) => {
+            const item = window.state.database.find(p => p.id === id);
+            if(!item) return;
+            const container = document.getElementById('edit-form-container');
+            container.innerHTML = window.getFormHTML();
+            const form = document.getElementById('form-edit-pindah');
+            form.dataset.docId = id;
+            Object.keys(item).forEach(key => {
+                const el = form.elements[key];
+                if(el && el.type !== 'file') el.value = item[key];
+            });
+            window.toggleModal('modal-edit-pindah');
+        };
+
+        function formatTanggalIndo(dateStr) {
+            if (!dateStr) return "-";
+            const bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            const parts = dateStr.split('-');
+            return parts.length === 3 ? `${parts[2]} ${bulan[parseInt(parts[1]) - 1]} ${parts[0]}` : dateStr;
+        }
+
+        function toFormalName(str) {
+            if(!str) return "";
+            return str.toLowerCase().split(' ').map(w => (w === 'sd' || w === 'sdn') ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        }
+
+        window.generateTemplates = (p) => {
+            const tgl = formatTanggalIndo(p.tanggal_surat);
+            const style = `font-family: 'Times New Roman', serif; background: white; width: 215mm; height: 330mm; padding: 10mm 20mm; box-sizing: border-box; color: black; line-height: 1.3; font-size: 12pt; text-align: left; position: relative; overflow: hidden; font-style: normal !important;`;
+            const logo = window.state.globalLogo || "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Lambang_Kabupaten_Pandeglang.png/120px-Lambang_Kabupaten_Pandeglang.png";
+            
+            const kabLabel = p.status_kab_sekolah_asal || 'Kabupaten';
+            const wilLabel = p.status_wil_sekolah_asal || 'Desa';
+            const kabKop = kabLabel === 'Kabupaten' ? 'Kab.' : kabLabel;
+            const alamatKop = `Alamat: ${p.alamat_sekolah_asal} ${wilLabel} ${p.desa_sekolah_asal} Kec. ${p.kec_sekolah_asal} ${kabKop} ${p.kab_sekolah_asal} Provinsi ${p.prov_sekolah_asal}`;
+
+            const s13 = `
+                <div class="print-page" style="${style}">
+                    <div style="border-bottom: 4px double black; margin-bottom: 8px; padding-bottom: 4px;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr>
+                                <td style="width: 100px; vertical-align: middle; padding-right: -100px;">
+                                    <img src="${logo}" style="width: 100px; height: auto; display: block;">
+                                </td>
+                                <td style="text-align: center; vertical-align: middle; padding-right: -100px;">
+                                    <div style="font-size: 16pt; font-weight: bold; text-transform: uppercase; line-height: 1.1;">PEMERINTAH ${kabLabel.toUpperCase()} ${p.kab_sekolah_asal ? p.kab_sekolah_asal.toUpperCase() : 'DAERAH'}</div>
+                                    <div style="font-size: 14pt; font-weight: bold; text-transform: uppercase; white-space: nowrap; line-height: 1.1;">DINAS PENDIDIKAN, KEPEMUDAAN DAN OLAHRAGA</div>
+                                    <div style="font-size: 22pt; font-weight: bold; text-transform: uppercase; line-height: 1.1;">${p.nama_sekolah_asal}</div>
+                                    <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase; line-height: 1.1;">KECAMATAN ${p.kec_sekolah_asal ? p.kec_sekolah_asal.toUpperCase() : 'CARITA'}</div>
+                                    <div style="font-size: 8.5pt; margin-top: 4px;">${alamatKop}</div>
+                                    <div style="font-size: 8.5pt;">NPSN: ${p.npsn_sekolah_asal}; Email: ${p.email_sekolah_asal}</div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div style="margin-top: 20px; text-align: center; margin-bottom: 12px;">
+                        <h4 style="margin:0; font-weight: bold; text-transform: uppercase; font-size: 12pt;">SURAT KETERANGAN PINDAH SEKOLAH</h4>
+                        <p style="margin:0;">Nomor: ${p.nomor_surat || '......../......../........'}</p>
+                    </div>
+                    <div style="text-align: justify; width: 100%;">
+                        <p style="margin-bottom: 10px;">Yang bertanda tangan dibawah ini, Kepala ${toFormalName(p.nama_sekolah_asal)} Kecamatan ${p.kec_sekolah_asal} ${kabLabel} ${p.kab_sekolah_asal} Provinsi ${p.prov_sekolah_asal}, menerangkan bahwa:</p>
+                        <table style="width: 100%; margin-left: 25px; margin-bottom: 10px; border-collapse: collapse;">
+                            <tr style="vertical-align: top;"><td width="180">Nama</td><td width="15">:</td><td style="font-weight:bold; text-transform:capitalize;">${p.nama_siswa}</td></tr>
+                            <tr style="vertical-align: top;"><td>Nomor Induk/ NISN</td><td>:</td><td>${p.nis}/ ${p.nisn}</td></tr>
+                            <tr style="vertical-align: top;"><td>Jenis Kelamin</td><td>:</td><td>${p.jenis_kelamin}</td></tr>
+                            <tr style="vertical-align: top;"><td>Siswa Kelas</td><td>:</td><td>${p.kelas_siswa}</td></tr>
+                        </table>
+                        <p style="margin-bottom: 10px;">Sesuai permohonan pindah sekolah oleh orang tua/ wali murid:</p>
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
+                            <tr style="vertical-align: top;"><td width="25"></td><td width="180">Nama</td><td width="15">:</td><td style="font-weight: bold;">${p.nama_ortu}</td></tr>
+                            <tr style="vertical-align: top;"><td></td><td>Pekerjaan</td><td>:</td><td>${p.pekerjaan_ortu}</td></tr>
+                            <tr style="vertical-align: top;"><td></td><td>Alamat</td><td>:</td><td>${p.alamat_asal_ortu}, ${p.status_wil_asal_ortu} ${p.desa_asal_ortu}, <br> Kec. ${p.kec_asal_ortu}, ${p.status_kab_asal_ortu} ${p.kab_asal_ortu}, Provinsi ${p.prov_asal_ortu}</td></tr>
+                        </table>
+                        <p style="margin-bottom: 10px;">Telah mengajukan pindah ke <b>${toFormalName(p.sekolah_tujuan)}</b> di ${p.status_wil_tujuan} ${p.desa_tujuan}, Kecamatan ${p.kec_tujuan}, ${p.status_kab_tujuan} ${p.kab_tujuan}, Provinsi ${p.prov_tujuan} dengan alasan <b>${p.alasan_pindah}</b>.</p>
+                        <p style="margin-bottom: 15px;">Bersama ini kami sertakan buku laporan hasil belajar dan surat permohonan pindah dari orang tua/ wali yang bersangkutan.</p>
+                    </div>
+                    <table style="width: 100%; margin-bottom: 15px;">
+                        <tr><td width="60%"></td><td>${p.lokasi_ttd}, ${tgl}<br>Kepala Sekolah,<br><br><br><br><b>${p.kepsek_nama}</b><br>NIP. ${p.kepsek_nip}</td></tr>
+                    </table>
+                    <div style="margin-top: 27px; border-top: 1px dashed #444; padding-top: 10px;">
+                        <p style="margin-bottom: 10px; font-style: regular;">Setelah siswa tersebut di atas diterima, harap isian dibawah ini dikirim ke alamat di atas.</p>
+                        <table style="width: 100%; line-height: 1.5; border-collapse: collapse;">
+                            <tr><td width="150">NPSN/ NSS</td><td width="15">:</td><td style="border-bottom: 1px dotted black;"></td></tr>
+                            <tr><td>Nama sekolah</td><td>:</td><td style="border-bottom: 1px dotted black;"></td></tr>
+                            <tr><td>Status sekolah</td><td>:</td><td style="border-bottom: 1px dotted black;"></td></tr>
+                            <tr><td>Alamat sekolah</td><td>:</td><td style="border-bottom: 1px dotted black;"></td></tr>
+                            <tr><td colspan="3"><table style="width:100%; border-collapse:collapse; margin-top:5px;"><tr><td width="150">Desa/ Kelurahan</td><td width="15">:</td><td style="border-bottom:1px dotted black; width:170px;">&nbsp;</td><td style="padding-left:15px; width:45px;">Kec.</td><td width="15">:</td><td style="border-bottom:1px dotted black;">&nbsp;</td></tr><tr><td>Kabupaten/ Kota</td><td>:</td><td style="border-bottom:1px dotted black;">&nbsp;</td><td style="padding-left:15px;">Provinsi</td><td>:</td><td style="border-bottom:1px dotted black;">&nbsp;</td></tr><tr><td>Diterima tanggal</td><td>:</td><td style="border-bottom:1px dotted black;">&nbsp;</td><td style="padding-left:15px;">Di kelas</td><td>:</td><td style="border-bottom:1px dotted black;">&nbsp;</td></tr></table></td></tr>
+                        </table>
+                        <table style="width: 100%; margin-top: 20px;">
+                            <tr><td width="60%"></td><td>.......................................... 20....<br>Kepala Sekolah,<br><br><br><br>..................................................<br>NIP.</td></tr>
+                        </table>
+                    </div>
+                </div>`;
+
+            const s12 = `
+                <div class="print-page" style="${style} page-break-before: always; border-top: 1px dashed #ccc; padding-top: 60px;">
+                    <div style="text-align: right; font-weight: bold; font-size: 10pt; margin-bottom: 15px;">FORMAT: S-12</div>
+                    <h3 style="text-align: center; font-weight: bold; margin-bottom: 30px; text-transform: uppercase; font-size: 14pt;">SURAT PERMOHONAN PINDAH SEKOLAH</h3>
+                    
+                    <div style="margin-bottom: 25px; line-height: 1.1;">
+                        <p style="margin:0; padding:0;">Yth. Kepala ${toFormalName(p.nama_sekolah_asal)}</p>
+                        <p style="margin:0; padding:0;">di -</p>
+                        <p style="margin:0; padding:0; font-weight:regular;">${p.lokasi_ttd} - ${p.kec_sekolah_asal}</p>
+                    </div>
+
+                    <p style="margin-bottom: 10px;">Dengan hormat,</p>
+                    <p style="margin-bottom: 10px;">Yang bertanda tangan di bawah ini:</p>
+                    <table style="width: 100%; margin-bottom: 15px; border-collapse: collapse;">
+                        <tr style="vertical-align: top;"><td width="160">Nama</td><td width="15">:</td><td style="font-weight: bold;">${p.nama_ortu}</td></tr>
+                        <tr style="vertical-align: top;"><td>Pekerjaan</td><td>:</td><td>${p.pekerjaan_ortu}</td></tr>
+                        <tr style="vertical-align: top;"><td>Alamat</td><td>:</td><td>${p.alamat_asal_ortu}, ${p.status_wil_asal_ortu} ${p.desa_asal_ortu}, <br> Kec. ${p.kec_asal_ortu}, ${p.status_kab_asal_ortu} ${p.kab_asal_ortu}, Provinsi ${p.prov_asal_ortu}</td></tr>
+                    </table>
+                    <p style="margin-bottom: 10px;">Orang tua/ Wali *) murid dari:</p>
+                    <table style="width: 100%; margin-bottom: 15px; border-collapse: collapse;">
+                        <tr style="vertical-align: top;"><td width="160">Nama</td><td width="15">:</td><td style="font-weight:bold;">${p.nama_siswa}</td></tr>
+                        <tr style="vertical-align: top;"><td>Nomor Induk/ NISN</td><td>:</td><td>${p.nis}/ ${p.nisn}</td></tr>
+                        <tr style="vertical-align: top;"><td>Jenis Kelamin</td><td>:</td><td>${p.jenis_kelamin}</td></tr>
+                        <tr style="vertical-align: top;"><td>Murid Kelas</td><td>:</td><td>${p.kelas_siswa}</td></tr>
+                    </table>
+                    <p style="margin-bottom: 10px;">Melalui ini mengajukan pindah belajar untuk murid tersebut di atas ke:</p>
+                    <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse;">
+                        <tr style="vertical-align: top;"><td width="160">Sekolah</td><td width="15">:</td><td style="font-weight:bold;">${toFormalName(p.sekolah_tujuan)}</td></tr>
+                        <tr style="vertical-align: top;"><td>Desa/ Kelurahan</td><td>:</td><td>${p.desa_tujuan}</td></tr>
+                        <tr style="vertical-align: top;"><td>Kecamatan</td><td>:</td><td>${p.kec_tujuan}</td></tr>
+                        <tr style="vertical-align: top;"><td>Kabupaten/ Kota</td><td>:</td><td>${p.kab_tujuan}</td></tr>
+                        <tr style="vertical-align: top;"><td>Provinsi</td><td>:</td><td>${p.prov_tujuan}</td></tr>
+                        <tr style="vertical-align: top;"><td>Dengan alasan</td><td>:</td><td style="font-weight:bold;">${p.alasan_pindah}</td></tr>
+                    </table>
+                    <p style="margin-bottom: 30px;">Atas perhatian dan kerjasama Saudara, kami ucapkan terima kasih.</p>
+                    <table style="width: 100%;"><tr><td width="65%"></td><td>${p.lokasi_ttd}, ${tgl}<br>Orang Tua/ Wali *) Murid,<br><br><br><br><b>${p.nama_ortu}</b></td></tr></table>
+                    <p style="font-size: 9pt; margin-top: 25px;">*) Coret yang bukan</p>
+                </div>`;
+            return s13 + s12;
+        };
+
+        window.updateDashboard = () => {
+            document.getElementById('stat-total').textContent = window.state.database.length;
+            const latest = [...window.state.database].reverse().slice(0, 6);
+            document.getElementById('dashboard-grid').innerHTML = latest.length ? latest.map(item => `
+                <div class="bg-white p-4 rounded-xl border border-slate-100 flex justify-between items-center shadow-sm">
+                    <div class="text-left font-bold text-xs text-slate-800 uppercase">${item.nama_siswa}</div>
+                    <span class="text-[9px] font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-lg uppercase truncate max-w-[120px]">${item.sekolah_tujuan}</span>
+                </div>
+            `).join('') : '<p class="col-span-full text-slate-300 text-[10px] font-bold py-10 text-center uppercase">Belum ada data masuk</p>';
+        };
+
+        window.renderDatabase = () => {
+            let filtered = window.state.database;
+            if(window.state.searchQuery) filtered = filtered.filter(p => p.nama_siswa.toLowerCase().includes(window.state.searchQuery));
+            document.getElementById('db-grid').innerHTML = filtered.map(item => `
+                <div class="bg-white p-5 rounded-xl border border-slate-100 shadow-sm relative group text-left">
+                    <div class="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button onclick="openEditModal('${item.id}')" class="p-1.5 bg-blue-50 text-blue-600 rounded-lg shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
+                        <button onclick="deleteItem('${item.id}')" class="p-1.5 bg-red-50 text-red-600 rounded-lg shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                    </div>
+                    <h4 class="font-bold text-sm uppercase text-slate-900">${item.nama_siswa}</h4>
+                    <p class="text-[9px] opacity-40 uppercase truncate">Ke: ${item.sekolah_tujuan}</p>
+                    <p class="text-[9px] text-blue-500 font-bold uppercase mt-1">Pindah: ${formatTanggalIndo(item.tanggal_surat)}</p>
+                </div>
+            `).join('');
+        };
+
+        window.renderRecipientView = () => {
+            const preview = document.getElementById('merge-result-preview');
+            if (!window.state.database.length) return preview.innerHTML = `<p class="py-20 text-center font-bold text-slate-400">DATABASE KOSONG</p>`;
+            const p = window.state.database[window.state.currentIndex];
+            window.state.processedHtml = window.generateTemplates(p);
+            preview.innerHTML = window.state.processedHtml;
+            document.getElementById('recipient-name').textContent = p.nama_siswa;
+            document.getElementById('current-info').textContent = `${window.state.currentIndex + 1}/${window.state.database.length}`;
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            window.state.user = user;
+            if (user) {
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', collectionName), (snap) => {
+                    window.state.database = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if(window.state.activeTab === 'dashboard') window.updateDashboard();
+                    if(window.state.activeTab === 'database') window.renderDatabase();
+                    if(window.state.activeTab === 'produksi') window.renderRecipientView();
+                });
+            }
+        });
+
+        window.addEventListener('load', () => {
+            document.getElementById('form-container-main').innerHTML = window.getFormHTML();
+            signInAnonymously(auth);
+            updateNavigationUI();
+        });
+
+        window.handleLogoUpload = (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const r = new FileReader();
+            r.onload = (ev) => { 
+                window.state.globalLogo = ev.target.result; 
+                localStorage.setItem('sipindah_global_logo', ev.target.result);
+                showToast("Logo Daerah Berhasil Disimpan"); 
+                if(window.state.activeTab === 'produksi') window.renderRecipientView();
+            };
+            r.readAsDataURL(f);
+        };
+
+        window.exportExcel = () => {
+            const ws = XLSX.utils.json_to_sheet(window.state.database);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Arsip");
+            XLSX.writeFile(wb, "Arsip_Mutasi_Master.xlsx");
+        };
+
+        window.printDoc = () => {
+            const w = window.open('', '_blank');
+            w.document.write(`<html><head><title>Cetak</title></head><body style="margin:0; background:#eee;">${window.state.processedHtml}</body></html>`);
+            w.document.close(); w.focus();
+            setTimeout(() => { w.print(); w.close(); }, 700);
+        };
+
+        window.exportPDF = () => {
+            const p = window.state.database[window.state.currentIndex];
+            html2pdf().set({ margin: 0, filename: `Mutasi_${p.nama_siswa}.pdf`, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: [215, 330], orientation: 'portrait' } }).from(window.state.processedHtml).save();
+        };
+
+        window.prevRecipient = () => { if (window.state.currentIndex > 0) { window.state.currentIndex--; window.renderRecipientView(); } };
+        window.nextRecipient = () => { if (window.state.currentIndex < window.state.database.length - 1) { window.state.currentIndex++; window.renderRecipientView(); } };
+
+        window.toggleModal = (id) => { const m = document.getElementById(id); m.classList.toggle('hidden'); m.classList.toggle('flex'); };
+
+        window.loginAdmin = (e) => {
+            e.preventDefault();
+            if (document.getElementById('admin-password').value === 'EdiBrata#1') {
+                window.state.isAdmin = true;
+                if(document.getElementById('admin-remember').checked) localStorage.setItem('edibrata_v15_admin', 'true');
+                showToast("Akses Terbuka");
+                window.switchTab('dashboard');
+            } else showToast("Sandi Salah!");
+        };
+
+        window.logoutAdmin = () => { window.state.isAdmin = false; localStorage.removeItem('edibrata_v15_admin'); showToast("Logout Berhasil"); window.switchTab('dashboard'); };
+
+        function updateNavigationUI() {
+            ['nav-database', 'nav-produksi'].forEach(id => document.getElementById(id)?.classList.toggle('hidden', !window.state.isAdmin));
+            document.getElementById('admin-login-text').textContent = window.state.isAdmin ? 'Admin (Logged)' : 'Admin';
+        }
+
+        window.deleteItem = async (id) => {
+            if (confirm("Hapus arsip ini permanen?")) { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, id)); showToast("Terhapus"); } catch (e) { showToast("Gagal"); } }
+        };
+    </script>
+</head>
+<body class="bg-slate-50 text-slate-800 flex flex-col min-h-screen text-left">
+    <div id="toast" class="fixed bottom-8 right-8 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl hidden z-[200] font-bold text-xs uppercase border border-white/10"></div>
+
+    <header class="bg-white border-b sticky top-0 z-40 no-print">
+        <div class="max-w-[1600px] mx-auto px-6 flex items-center justify-between h-20">
+            <div class="flex items-center gap-4 text-left">
+                <div class="w-11 h-11 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-xl">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 14l9-5-9-5-9 5 9 5z"></path></svg>
+                </div>
+                <div class="text-left text-slate-900">
+                    <h1 class="font-extrabold text-lg leading-none uppercase">EDI BRATA<span class="text-blue-600">.PRO</span></h1>
+                    <p class="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">Sistem Mutasi S-13 & S-12</p>
+                </div>
+            </div>
+            <nav class="flex gap-1.5 bg-slate-100 p-1.5 rounded-xl">
+                <button onclick="switchTab('dashboard')" data-tab="dashboard" class="tab-btn active px-4 py-2 text-[10px] uppercase rounded-lg border-blue-600 text-blue-600 bg-blue-50">Dashboard</button>
+                <button onclick="switchTab('formulir')" data-tab="formulir" class="tab-btn px-4 py-2 text-[10px] uppercase rounded-lg text-slate-500 hover:bg-white">Buat Surat</button>
+                <button id="nav-database" onclick="switchTab('database')" data-tab="database" class="tab-btn px-4 py-2 text-[10px] uppercase rounded-lg text-slate-500 hidden hover:bg-white">Arsip</button>
+                <button id="nav-produksi" onclick="switchTab('produksi')" data-tab="produksi" class="tab-btn px-4 py-2 text-[10px] uppercase rounded-lg text-slate-500 hidden hover:bg-white">Cetak</button>
+                <button onclick="switchTab('admin')" data-tab="admin" class="tab-btn px-4 py-2 text-[10px] uppercase rounded-lg text-slate-500 hover:bg-white"><span id="admin-login-text">Admin</span></button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-[1600px] mx-auto p-4 md:p-10 flex-grow w-full text-left">
+        <section id="dashboard" class="tab-content space-y-8 animate-in fade-in">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch text-left">
+                <div class="md:col-span-2 bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-10 text-white relative shadow-2xl overflow-hidden text-left">
+                    <div class="relative z-10 text-left">
+                        <h2 class="text-4xl font-black mb-3 uppercase leading-tight text-left">Master Mutasi Digital</h2>
+                        <p class="text-blue-100 text-sm max-w-md opacity-90 leading-relaxed text-left font-bold italic-none">Penyimpanan Firestore Aktif. Kelola berkas S-13 dan S-12 secara otomatis dan akurat.</p>
+                        <button onclick="switchTab('formulir')" class="mt-8 bg-white text-blue-600 px-10 py-4 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all text-center">Entri Data Baru</button>
+                    </div>
+                </div>
+                <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-center items-center text-center">
+                    <p class="text-slate-400 font-black text-[10px] uppercase tracking-widest text-center">Arsip Terdaftar</p>
+                    <h3 id="stat-total" class="text-7xl font-black text-slate-900 mt-4 tracking-tighter leading-none text-center">0</h3>
+                </div>
+            </div>
+            <div class="space-y-6 text-left">
+                <h4 class="text-[11px] font-black uppercase text-slate-400 tracking-[0.2em] px-2 flex items-center gap-2 text-left"><span class="w-2 h-2 bg-blue-600 rounded-full"></span> Entri Terbaru</h4>
+                <div id="dashboard-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left"></div>
+            </div>
+        </section>
+
+        <section id="formulir" class="tab-content hidden animate-in slide-in-from-bottom-6 text-left">
+            <div class="bg-white p-6 md:p-12 rounded-2xl shadow-xl border border-slate-100 text-left">
+                <form onsubmit="window.handleProcessData(event, 'add')" id="form-main">
+                    <div id="form-container-main"></div>
+                    <button type="submit" class="w-full mt-10 bg-blue-600 text-white font-black py-6 rounded-xl shadow-xl hover:bg-blue-700 active:scale-95 transition-all text-sm uppercase tracking-widest text-center">Simpan Berkas Mutasi Master</button>
+                </form>
+            </div>
+        </section>
+
+        <section id="database" class="tab-content hidden space-y-8 animate-in fade-in text-left">
+            <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row gap-6 items-center justify-between text-left">
+                <input type="text" oninput="window.state.searchQuery = this.value.toLowerCase(); window.renderDatabase();" placeholder="CARI NAMA SISWA..." class="w-full md:max-w-md px-10 py-4 bg-slate-50 border-none rounded-xl text-[11px] font-black uppercase outline-none shadow-inner text-left">
+                <button onclick="window.exportExcel()" class="px-8 py-4 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg text-center">Ekspor XLSX</button>
+            </div>
+            <div id="db-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 text-left"></div>
+        </section>
+
+        <section id="produksi" class="tab-content hidden h-full text-left">
+            <div class="flex flex-col lg:flex-row gap-8 h-[calc(100vh-160px)] text-left">
+                <aside class="lg:w-80 bg-white p-8 rounded-2xl border border-slate-100 shadow-xl flex flex-col gap-8 no-print shrink-0 text-left">
+                    <div class="text-left border-b border-slate-50 pb-4">
+                        <label class="font-black text-slate-400 text-[10px] uppercase tracking-widest">Navigasi Arsip</label>
+                        <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl shadow-inner mt-2">
+                            <button onclick="prevRecipient()" class="p-3 bg-white rounded-xl shadow-sm text-slate-300 hover:text-blue-600 font-bold active:scale-90 transition-all text-left">◀</button>
+                            <div class="text-center overflow-hidden">
+                                <div id="recipient-name" class="font-black text-[10px] uppercase text-slate-800 truncate px-2">Pilih Data</div>
+                                <div id="current-info" class="text-[9px] opacity-40 font-black mt-1 text-center">0/0</div>
+                            </div>
+                            <button onclick="nextRecipient()" class="p-3 bg-white rounded-xl shadow-sm text-slate-300 hover:text-blue-600 font-bold active:scale-90 transition-all text-left">▶</button>
+                        </div>
+                    </div>
+                    
+                    <!-- SIMPLIFIED GLOBAL LOGO MANAGEMENT -->
+                    <div class="text-left border-b border-slate-50 pb-6">
+                        <label class="text-blue-600 text-[10px] font-black uppercase tracking-widest mb-2">Update Logo Daerah</label>
+                        <input type="file" accept="image/*" onchange="window.handleLogoUpload(event)" class="text-[9px] text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer w-full">
+                    </div>
+
+                    <div class="flex flex-col gap-4 text-left">
+                        <button onclick="window.printDoc()" class="w-full bg-slate-900 text-white py-5 rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-black transition-all text-center">Cetak S13 & S12</button>
+                        <button onclick="window.exportPDF()" class="w-full bg-blue-600 text-white py-5 rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-blue-700 transition-all text-center">Simpan PDF</button>
+                    </div>
+                </aside>
+                <div class="flex-grow bg-slate-200 rounded-3xl shadow-inner border border-slate-300/50 overflow-auto flex flex-col items-center py-12 scrollbar-hide text-left">
+                    <div id="merge-result-preview" class="transform scale-[0.5] sm:scale-[0.7] md:scale-[0.8] lg:scale-[0.95] origin-top bg-white"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="admin" class="tab-content hidden py-20 text-center">
+            <div class="w-full max-w-md mx-auto bg-white p-12 rounded-2xl shadow-2xl border border-slate-100 space-y-10 text-center">
+                <div class="bg-blue-50 text-blue-600 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto shadow-inner text-center"><svg class="w-10 h-10 text-center" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg></div>
+                <h3 class="text-3xl font-black text-slate-900 uppercase leading-tight text-center">Administrator</h3>
+                <form onsubmit="window.loginAdmin(event)" class="space-y-6 text-center">
+                    <input type="password" id="admin-password" required class="w-full px-8 py-5 bg-slate-50 rounded-xl border-none outline-none font-mono text-center shadow-inner tracking-[0.5em] text-center" placeholder="••••••••">
+                    <div class="flex items-center gap-2 px-2 text-left">
+                        <input type="checkbox" id="admin-remember" class="w-4 h-4 rounded border-slate-300 text-blue-600 text-left">
+                        <label for="admin-remember" class="text-[10px] text-slate-500 mb-0 font-bold uppercase tracking-wide text-left">Ingat Sesi Saya</label>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 text-white font-black py-5 rounded-xl shadow-2xl uppercase tracking-widest text-[11px] hover:bg-blue-700 transition-all text-center">Masuk ke Sistem</button>
+                </form>
+                
+                <button onclick="window.logoutAdmin()" class="mt-10 text-red-400 font-black text-[10px] uppercase tracking-widest hover:text-red-600 text-center">Logout</button>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL EDIT -->
+    <div id="modal-edit-pindah" class="fixed inset-0 z-[150] hidden items-center justify-center p-4">
+        <div class="absolute inset-0 modal-overlay" onclick="window.toggleModal('modal-edit-pindah')"></div>
+        <div class="bg-white w-full max-w-7xl rounded-2xl shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh] text-left">
+            <div class="bg-slate-900 px-10 py-6 flex justify-between items-center shrink-0">
+                <h2 class="text-white font-black text-lg uppercase tracking-tight text-left">Update Berkas Mutasi Master</h2>
+                <button onclick="window.toggleModal('modal-edit-pindah')" class="text-slate-400 hover:text-white">✕</button>
+            </div>
+            
+            <form id="form-edit-pindah" onsubmit="window.handleProcessData(event, 'update', this.dataset.docId)" class="flex-grow flex flex-col overflow-hidden">
+                <div id="edit-form-container" class="flex-grow overflow-y-auto p-12 bg-white space-y-12 text-left">
+                    <!-- Form content injected here -->
+                </div>
+                
+                <div class="shrink-0 flex gap-4 p-8 border-t bg-slate-50 text-left">
+                    <button type="submit" class="flex-grow bg-slate-900 text-white font-black py-5 rounded-xl uppercase tracking-widest text-xs shadow-xl text-center">Update Cloud Database</button>
+                    <button type="button" onclick="window.toggleModal('modal-edit-pindah')" class="px-10 bg-slate-200 text-slate-500 font-bold py-5 rounded-xl uppercase text-[10px] text-center">Batal</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <footer class="mt-20 py-16 border-t bg-white text-center text-[9px] text-slate-300 font-black uppercase tracking-[0.5em] no-print px-10">
+        EDI BRATA &copy; 2026 | MASTER S-12 & S-13 SYSTEM | DEVELOPED BY EDI BRATA
+    </footer>
+</body>
+</html>
